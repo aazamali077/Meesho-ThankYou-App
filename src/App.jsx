@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { PDFDocument, StandardFonts, rgb } from 'pdf-lib';
+import { PDFDocument } from 'pdf-lib';
 import * as pdfjsLib from 'pdfjs-dist';
 import pdfWorker from 'pdfjs-dist/build/pdf.worker.min.mjs?url';
 
@@ -8,6 +8,7 @@ pdfjsLib.GlobalWorkerOptions.workerSrc = pdfWorker;
 const NOTE_FONT_SIZE = 12;
 const NOTE_GAP = 10;
 const NOTE_WIDTH_RATIO = 0.84;
+const NOTE_RENDER_SCALE = 3;
 
 function findContentBottom(canvas) {
   const context = canvas.getContext('2d', { willReadFrequently: true });
@@ -32,7 +33,7 @@ function findContentBottom(canvas) {
   return null;
 }
 
-function wrapText(text, font, fontSize, maxWidth) {
+function wrapText(context, text, maxWidth) {
   const lines = [];
   for (const paragraph of text.split(/\r?\n/)) {
     if (!paragraph.trim()) {
@@ -43,16 +44,16 @@ function wrapText(text, font, fontSize, maxWidth) {
     let line = '';
     for (const word of paragraph.trim().split(/\s+/)) {
       const candidate = line ? `${line} ${word}` : word;
-      if (font.widthOfTextAtSize(candidate, fontSize) <= maxWidth) {
+      if (context.measureText(candidate).width <= maxWidth) {
         line = candidate;
         continue;
       }
 
       if (line) lines.push(line);
       line = '';
-      for (const character of word) {
+      for (const character of Array.from(word)) {
         const next = line + character;
-        if (line && font.widthOfTextAtSize(next, fontSize) > maxWidth) {
+        if (line && context.measureText(next).width > maxWidth) {
           lines.push(line);
           line = character;
         } else {
@@ -63,6 +64,44 @@ function wrapText(text, font, fontSize, maxWidth) {
     if (line) lines.push(line);
   }
   return lines;
+}
+
+function measureNote(text, pageWidth) {
+  const scale = NOTE_RENDER_SCALE;
+  const imageWidth = Math.floor(pageWidth * NOTE_WIDTH_RATIO * scale);
+  const fontSize = NOTE_FONT_SIZE * scale;
+  const lineHeight = NOTE_FONT_SIZE * 1.35 * scale;
+  const context = document.createElement('canvas').getContext('2d');
+  if (!context) throw new Error('Text rendering is unavailable in this browser.');
+
+  context.font = `${fontSize}px Arial, "Segoe UI", "Segoe UI Emoji", "Noto Color Emoji", sans-serif`;
+  const lines = wrapText(context, text, imageWidth);
+  return { lines, imageWidth, lineHeight, imageHeight: Math.ceil(lines.length * lineHeight), scale };
+}
+
+function createNoteImage(layout) {
+  const canvas = document.createElement('canvas');
+  canvas.width = layout.imageWidth;
+  canvas.height = layout.imageHeight;
+  const context = canvas.getContext('2d');
+  if (!context) throw new Error('Text rendering is unavailable in this browser.');
+
+  context.font = `${NOTE_FONT_SIZE * layout.scale}px Arial, "Segoe UI", "Segoe UI Emoji", "Noto Color Emoji", sans-serif`;
+  context.fillStyle = '#212321';
+  context.textAlign = 'center';
+  context.textBaseline = 'top';
+  layout.lines.forEach((line, index) => {
+    context.fillText(line, layout.imageWidth / 2, index * layout.lineHeight, layout.imageWidth);
+  });
+
+  const base64 = canvas.toDataURL('image/png').split(',')[1];
+  const binary = atob(base64);
+  const imageBytes = Uint8Array.from(binary, (character) => character.charCodeAt(0));
+  return {
+    imageBytes,
+    width: layout.imageWidth / layout.scale,
+    height: canvas.height / layout.scale,
+  };
 }
 
 function App() {
@@ -153,9 +192,7 @@ function App() {
     setError('');
     try {
       const pdf = await PDFDocument.load(await file.arrayBuffer());
-      const font = await pdf.embedFont(StandardFonts.Helvetica);
       const pdfPages = pdf.getPages();
-      const lineHeight = NOTE_FONT_SIZE * 1.35;
 
       for (const pageInfo of pages) {
         if (pageInfo.contentBottom === null) {
@@ -164,22 +201,20 @@ function App() {
 
         const page = pdfPages[pageInfo.number - 1];
         const { width, height } = page.getSize();
-        const lines = wrapText(note.trim(), font, NOTE_FONT_SIZE, width * NOTE_WIDTH_RATIO);
-        const blockHeight = lines.length * lineHeight;
+        const layout = measureNote(note.trim(), width);
+        const blockHeight = layout.imageHeight / layout.scale;
         const contentBottom = pageInfo.contentBottom * height;
         if (contentBottom + NOTE_GAP + blockHeight > height - 12) {
           throw new Error(`There is not enough blank space below the slip on page ${pageInfo.number}. Shorten the text to fit.`);
         }
 
-        lines.forEach((line, index) => {
-          const textWidth = font.widthOfTextAtSize(line, NOTE_FONT_SIZE);
-          page.drawText(line, {
-            x: (width - textWidth) / 2,
-            y: height - contentBottom - NOTE_GAP - NOTE_FONT_SIZE - index * lineHeight,
-            size: NOTE_FONT_SIZE,
-            font,
-            color: rgb(0.13, 0.14, 0.13),
-          });
+        const noteImage = createNoteImage(layout);
+        const embeddedImage = await pdf.embedPng(noteImage.imageBytes);
+        page.drawImage(embeddedImage, {
+          x: (width - noteImage.width) / 2,
+          y: height - contentBottom - NOTE_GAP - blockHeight,
+          width: noteImage.width,
+          height: blockHeight,
         });
       }
 

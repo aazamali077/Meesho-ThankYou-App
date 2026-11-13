@@ -2,7 +2,7 @@
 
 Choose a Meesho order PDF, type a message, preview its automatic placement beneath the slip on every page, and download the updated PDF. The message is centered and uses a readable 12 pt size.
 
-The editor detects the last visible printed content on each page and positions the message beneath it. If the PDF page has no detectable printed content or insufficient room, the editor reports an error instead of placing text over the slip.
+The editor detects the last visible printed content on each page and positions the message beneath it. If the PDF page has no detectable printed content or insufficient room, the editor reports an error instead of placing text over the slip. Notes are rendered as images when exported so Unicode symbols and emojis are not limited by the PDF's built-in fonts.
 
 ## Privacy
 
