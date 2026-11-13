@@ -19,4 +19,6 @@ Create a production build with `npm run build`. The generated `dist/` folder can
 
 ## GitHub Pages
 
-Vite is configured with a relative base path, so the built files work when hosted from a project repository subpath. Configure GitHub Pages to deploy the `dist/` folder (for example, with a GitHub Actions Pages workflow).
+Vite is configured with a relative base path, so the built files work when hosted from a project repository subpath. The GitHub Actions workflow builds the app and deploys the complete `dist/` output on each push to `main`.
+
+In the repository, open **Settings → Pages** and set the build and deployment source to **GitHub Actions**. After pushing the workflow, check the **Actions** tab for a successful **Deploy to GitHub Pages** run.
